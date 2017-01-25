@@ -52,37 +52,6 @@ def dump_h5(dataset, batch_size, directory_name):
         batch_id += 1
 
 
-def fit_with_dl4j(
-        model,
-        nb_epoch,
-        features_directory,
-        labels_directory
-):
-    """
-    Executes fitting of the model by using DL4J as backend
-    :param model: Model to use
-    :param nb_epoch: Number of learning epochs
-    :param features_directory: Directory with feature batch files
-    :param labels_directory: Directory with label batch files
-    :return:
-    """
-
-    model_file_path = generate_tmp_path()
-    model.save(model_file_path)
-
-    gateway = JavaGateway()
-
-    sequential = gateway.jvm.org.deeplearning4j.keras.KerasModelType.SEQUENTIAL
-    params_builder = gateway.jvm.org.deeplearning4j.keras.EntryPointFitParameters.builder()
-    params_builder.type(sequential)
-    params_builder.modelFilePath(model_file_path)
-    params_builder.nbEpoch(nb_epoch)
-    params_builder.trainFeaturesDirectory(features_directory)
-    params_builder.trainLabelsDirectory(labels_directory)
-    params_builder.dimOrdering(K.image_dim_ordering())
-    gateway.fit(params_builder.build())
-
-
 def hash_ndarray(array):
     """
     Calculates a hash of contents of ndarray
@@ -94,6 +63,44 @@ def hash_ndarray(array):
     hsh.update(array.view(numpy.uint8))
     return hsh.hexdigest()
 
+
+def check_dl4j_model(
+    model_object):
+    """
+    Checks the current Keras model object in scope
+    and installs a reference to DL4J MultiLayerNetwork
+    if it doesn't exist.
+    """
+    if hasattr(model_object, '_dl4j_model'):
+        return model_object
+    else:
+        model_file_path = generate_tmp_path()
+        model_object.save(model_file_path)
+
+        gateway = JavaGateway()
+
+        sequential = gateway.jvm.org.deeplearning4j.keras.model.KerasModelType.SEQUENTIAL
+        params_builder = gateway.jvm.org.deeplearning4j.keras.api.sequential.SequentialModelRef.builder()
+        params_builder.type(sequential)
+        params_builder.modelFilePath(model_file_path)
+
+        model_object._dl4j_model = gateway.convert_to_dl4j(params_builder.build())
+        return model_object
+
+
+def install_dl4j_backend(model):
+    """
+    Hijacks the `fit` method call in the model object
+    :param model: Model in which fit will be hijacked
+    """
+
+    model.__dl4j_old_fit = model.fit
+    model.fit = new.instancemethod(_new_fit, model, None)
+
+
+########
+# hijacked functions in model class
+########
 
 def _new_fit(
         self,
@@ -109,6 +116,16 @@ def _new_fit(
         class_weight=None,
         sample_weight=None,
         **kwargs):
+    """
+    Executes fitting of the model by using DL4J as backend
+    :param model: Model to use
+    :param nb_epoch: Number of learning epochs
+    :param features_directory: Directory with feature batch files
+    :param labels_directory: Directory with label batch files
+    :return:
+    """
+    check_dl4j_model(self) # enforces dl4j model for model.fn() 
+
     def dump_ndarray(batch_size, dataset):
         dataset_hash = hash_ndarray(dataset)
         if not dataset_hash in hijack_cache:
@@ -120,22 +137,73 @@ def _new_fit(
 
         return hijack_cache[dataset_hash]
 
+
     x_directory = dump_ndarray(batch_size, x)
     y_directory = dump_ndarray(batch_size, y)
 
-    fit_with_dl4j(
-        self,
-        nb_epoch,
-        x_directory,
-        y_directory
-    )
+    gateway = JavaGateway()
 
+    sequential = gateway.jvm.org.deeplearning4j.keras.model.KerasModelType.SEQUENTIAL
+    params_builder = gateway.jvm.org.deeplearning4j.keras.api.sequential.FitParams.builder()
+    params_builder.type(sequential)
+    params_builder.modelFilePath(model_file_path)
+    params_builder.nbEpoch(nb_epoch)
+    params_builder.trainFeaturesDirectory(features_directory)
+    params_builder.trainLabelsDirectory(labels_directory)
+    params_builder.dimOrdering(K.image_dim_ordering())
+    gateway.fit(params_builder.build())
 
-def install_dl4j_backend(model):
+def _new_evaluate(
+        self, 
+        x, 
+        y, 
+        batch_size=32, 
+        verbose=1,
+        sample_weight=None, 
+        **kwargs):
     """
-    Hijacks the `fit` method call in the model object
-    :param model: Model in which fit will be hijacked
+    Computes the loss on some input data, batch by batch.
     """
+    check_dl4j_model(self) # enforces dl4j model for model.fn() 
+    # TODO
 
-    model.__dl4j_old_fit = model.fit
-    model.fit = new.instancemethod(_new_fit, model, None)
+def _new_predict(
+    self, 
+    x, 
+    batch_size=32, 
+    verbose=0):
+    """
+    Generates output predictions for the input samples,
+    processing the samples in a batched way.
+    """
+    check_dl4j_model(self) # enforces dl4j model for model.fn() 
+    # TODO
+
+def _new_predict_on_batch(
+    self, 
+    x):
+    """
+    Returns predictions for a single batch of samples.
+    """
+    check_dl4j_model(self) # enforces dl4j model for model.fn() 
+    # TODO
+
+def _new_from_config(
+    cls, 
+    config, 
+    layer_cache=None):
+    """
+    Supports legacy formats
+    """
+    check_dl4j_model(self) # enforces dl4j model for model.fn() 
+    # TODO
+
+def _new_save_model(
+    model, 
+    filepath, 
+    overwrite=True):
+    """
+    Save model to disk in DL4J format.
+    """
+    check_dl4j_model(self) # enforces dl4j model for model.fn() 
+    # TODO
