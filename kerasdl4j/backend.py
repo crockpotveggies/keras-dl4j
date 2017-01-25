@@ -61,7 +61,19 @@ def hash_ndarray(array):
 
     hsh = xxhash.xxh64()
     hsh.update(array.view(numpy.uint8))
-    return hsh.hexdigest()
+    return hsh.hexdigest() 
+
+
+def dump_ndarray(batch_size, dataset):
+    dataset_hash = hash_ndarray(dataset)
+    if not dataset_hash in hijack_cache:
+        directory_name = generate_tmp_path()
+        dump_h5(dataset, batch_size, directory_name)
+        hijack_cache[dataset_hash] = directory_name
+    else:
+        print("Dataset already dumped")
+
+    return hijack_cache[dataset_hash]
 
 
 def check_dl4j_model(
@@ -124,34 +136,21 @@ def _new_fit(
     :param labels_directory: Directory with label batch files
     :return:
     """
-    check_dl4j_model(self) # enforces dl4j model for model.fn() 
+    check_dl4j_model(self) # enforces dl4j model for model.fn()
 
-    def dump_ndarray(batch_size, dataset):
-        dataset_hash = hash_ndarray(dataset)
-        if not dataset_hash in hijack_cache:
-            directory_name = generate_tmp_path()
-            dump_h5(dataset, batch_size, directory_name)
-            hijack_cache[dataset_hash] = directory_name
-        else:
-            print("Dataset already dumped")
-
-        return hijack_cache[dataset_hash]
-
-
-    x_directory = dump_ndarray(batch_size, x)
-    y_directory = dump_ndarray(batch_size, y)
+    features_directory = dump_ndarray(batch_size, x)
+    labels_directory = dump_ndarray(batch_size, y)
 
     gateway = JavaGateway()
 
-    sequential = gateway.jvm.org.deeplearning4j.keras.model.KerasModelType.SEQUENTIAL
     params_builder = gateway.jvm.org.deeplearning4j.keras.api.sequential.FitParams.builder()
-    params_builder.type(sequential)
-    params_builder.modelFilePath(model_file_path)
+    params_builder.model(self._dl4j_model)
     params_builder.nbEpoch(nb_epoch)
     params_builder.trainFeaturesDirectory(features_directory)
     params_builder.trainLabelsDirectory(labels_directory)
     params_builder.dimOrdering(K.image_dim_ordering())
     gateway.fit(params_builder.build())
+
 
 def _new_evaluate(
         self, 
@@ -165,7 +164,19 @@ def _new_evaluate(
     Computes the loss on some input data, batch by batch.
     """
     check_dl4j_model(self) # enforces dl4j model for model.fn() 
-    # TODO
+
+    features_directory = dump_ndarray(batch_size, x)
+    labels_directory = dump_ndarray(batch_size, y)
+
+    gateway = JavaGateway()
+
+    params_builder = gateway.jvm.org.deeplearning4j.keras.api.sequential.EvaluateParams.builder()
+    params_builder.model(self._dl4j_model)
+    params_builder.featuresDirectory(features_directory)
+    params_builder.labelsDirectory(labels_directory)
+    params_builder.batchSize(batch_size)
+    gateway.fit(params_builder.build())
+
 
 def _new_predict(
     self, 
@@ -176,8 +187,18 @@ def _new_predict(
     Generates output predictions for the input samples,
     processing the samples in a batched way.
     """
-    check_dl4j_model(self) # enforces dl4j model for model.fn() 
-    # TODO
+    check_dl4j_model(self) # enforces dl4j model for model.fn()
+
+    features_directory = dump_ndarray(batch_size, x)
+
+    gateway = JavaGateway()
+
+    params_builder = gateway.jvm.org.deeplearning4j.keras.api.sequential.EvaluateParams.builder()
+    params_builder.model(self._dl4j_model)
+    params_builder.featuresDirectory(features_directory)
+    params_builder.batchSize(batch_size)
+    gateway.fit(params_builder.build())
+
 
 def _new_predict_on_batch(
     self, 
@@ -186,6 +207,15 @@ def _new_predict_on_batch(
     Returns predictions for a single batch of samples.
     """
     check_dl4j_model(self) # enforces dl4j model for model.fn() 
+
+    features_directory = dump_ndarray(batch_size, x)
+
+    gateway = JavaGateway()
+
+    params_builder = gateway.jvm.org.deeplearning4j.keras.api.sequential.EvaluateParams.builder()
+    params_builder.model(self._dl4j_model)
+    params_builder.featuresDirectory(features_directory)
+    gateway.fit(params_builder.build())
     # TODO
 
 def _new_from_config(
