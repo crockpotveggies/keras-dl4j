@@ -90,10 +90,17 @@ def check_dl4j_model(
         model_object.save(model_file_path)
 
         gateway = JavaGateway()
+        modelType = None
 
-        sequential = gateway.jvm.org.deeplearning4j.keras.model.KerasModelType.SEQUENTIAL
-        params_builder = gateway.jvm.org.deeplearning4j.keras.api.sequential.SequentialModelRef.builder()
-        params_builder.type(sequential)
+        if model.__class__.__name__ == 'Sequential':
+            modelType = gateway.jvm.org.deeplearning4j.keras.model.KerasModelType.SEQUENTIAL
+        elif model.__class__.__name__ == 'Functional':
+            modelType = gateway.jvm.org.deeplearning4j.keras.model.KerasModelType.FUNCTIONAL
+        else:
+            raise ValueError('DL4J Keras only works with Sequential and Functional models')
+
+        params_builder = gateway.jvm.org.deeplearning4j.keras.api.sequential.KerasModelRef.builder()
+        params_builder.type(modelType)
         params_builder.modelFilePath(model_file_path)
 
         model_object._dl4j_model = gateway.convert_to_dl4j(params_builder.build())
@@ -102,19 +109,50 @@ def check_dl4j_model(
 
 def install_dl4j_backend(model):
     """
-    Hijacks the `fit` method call in the model object
+    Hijacks the `fit` method call in the model object. Detects
+    if model is Sequential or Functional.
     :param model: Model in which fit will be hijacked
     """
+    # append special methods
+    # save_model()
+    model.save_model = new.instancemethod(_save_model, model, None)
 
-    model.__dl4j_old_fit = model.fit
-    model.fit = new.instancemethod(_new_fit, model, None)
+    # hijack Keras API
+    if model.__class__.__name__ == 'Sequential':
+        # compile()
+        model._old_compile = model.compile
+        model.compile = new.instancemethod(_sequential_compile)
+        # fit()
+        model._old_fit = model.fit
+        model.fit = new.instancemethod(_sequential_fit, model, None)
+        # evaluate()
+        model._old_evaluate = model.evaluate
+        model.evaluate = new.instancemethod(_sequential_evaluate, model, None)
+        # predict()
+        model._old_predict = model.predict
+        model.predict = new.instancemethod(_sequential_predict, model, None)
+        # predict_on_batch()
+        model._old_predict_on_batch = model.predict_on_batch
+        model.predict_on_batch = new.instancemethod(_sequential_predict_on_batch, model, None)
+        # compile()
+        model._old_compile = model.compile
+        model.compile = new.instancemethod(_sequential_compile, model, None)
+
+    elif model.__class__.__name__ == 'Functional':
+
+    else:
+        raise ValueError('DL4J Keras only works with Sequential and Functional models')
 
 
 ########
 # hijacked functions in model class
 ########
 
-def _new_fit(
+########
+# for Sequential(Model) instances
+########
+
+def _sequential_fit(
         self,
         x,
         y,
@@ -144,7 +182,7 @@ def _new_fit(
     gateway = JavaGateway()
 
     params_builder = gateway.jvm.org.deeplearning4j.keras.api.sequential.FitParams.builder()
-    params_builder.model(self._dl4j_model)
+    params_builder.sequentialModel(self._dl4j_model)
     params_builder.nbEpoch(nb_epoch)
     params_builder.trainFeaturesDirectory(features_directory)
     params_builder.trainLabelsDirectory(labels_directory)
@@ -152,7 +190,7 @@ def _new_fit(
     gateway.fit(params_builder.build())
 
 
-def _new_evaluate(
+def _sequential_evaluate(
         self, 
         x, 
         y, 
@@ -171,14 +209,14 @@ def _new_evaluate(
     gateway = JavaGateway()
 
     params_builder = gateway.jvm.org.deeplearning4j.keras.api.sequential.EvaluateParams.builder()
-    params_builder.model(self._dl4j_model)
+    params_builder.sequentialModel(self._dl4j_model)
     params_builder.featuresDirectory(features_directory)
     params_builder.labelsDirectory(labels_directory)
     params_builder.batchSize(batch_size)
-    gateway.fit(params_builder.build())
+    gateway.evaluate(params_builder.build())
 
 
-def _new_predict(
+def _sequential_predict(
     self, 
     x, 
     batch_size=32, 
@@ -194,13 +232,13 @@ def _new_predict(
     gateway = JavaGateway()
 
     params_builder = gateway.jvm.org.deeplearning4j.keras.api.sequential.EvaluateParams.builder()
-    params_builder.model(self._dl4j_model)
+    params_builder.sequentialModel(self._dl4j_model)
     params_builder.featuresDirectory(features_directory)
     params_builder.batchSize(batch_size)
-    gateway.fit(params_builder.build())
+    gateway.predict(params_builder.build())
 
 
-def _new_predict_on_batch(
+def _sequential_predict_on_batch(
     self, 
     x):
     """
@@ -213,27 +251,54 @@ def _new_predict_on_batch(
     gateway = JavaGateway()
 
     params_builder = gateway.jvm.org.deeplearning4j.keras.api.sequential.EvaluateParams.builder()
-    params_builder.model(self._dl4j_model)
+    params_builder.sequentialModel(self._dl4j_model)
     params_builder.featuresDirectory(features_directory)
-    gateway.fit(params_builder.build())
+    gateway.predict_on_batch(params_builder.build())
     # TODO
 
-def _new_from_config(
-    cls, 
-    config, 
-    layer_cache=None):
+def _sequential_compile(
+        self, 
+        optimizer, 
+        loss,
+        metrics=None,
+        sample_weight_mode=None,
+        **kwargs):
     """
-    Supports legacy formats
+    Configures the learning process.
     """
-    check_dl4j_model(self) # enforces dl4j model for model.fn() 
-    # TODO
+    # first call the old compile() method
+    self._old_compile(self, optimizer, loss, metrics, sample_weight_mode, kwargs)
 
-def _new_save_model(
-    model, 
+    # then convert to DL4J instance
+    check_dl4j_model(self) # enforces dl4j model for model.fn()
+
+
+
+########
+# for Functional(Model) instances
+########
+
+
+
+########
+# for any Model instances
+########
+
+
+def _save_model(
+    self, 
     filepath, 
-    overwrite=True):
+    overwrite=True,
+    saveUpdaterState=False):
     """
     Save model to disk in DL4J format.
     """
     check_dl4j_model(self) # enforces dl4j model for model.fn() 
+
+
+    params_builder = gateway.jvm.org.deeplearning4j.keras.api.sequential.SaveParams.builder()
+    params_builder.sequentialModel(self._dl4j_model)
+    params_builder.writePath(filepath)
+    params_builder.saveUpdaterState(saveUpdaterState)
+    gateway.predict_on_batch(params_builder.build())
     # TODO
