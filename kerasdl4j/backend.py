@@ -94,7 +94,7 @@ def check_dl4j_model(
 
         if model.__class__.__name__ == 'Sequential':
             modelType = gateway.jvm.org.deeplearning4j.keras.model.KerasModelType.SEQUENTIAL
-            params_builder = gateway.jvm.org.deeplearning4j.keras.api.sequential.KerasModelRef.builder()
+            params_builder = gateway.jvm.org.deeplearning4j.keras.api.KerasModelRef.builder()
             params_builder.type(modelType)
             params_builder.modelFilePath(model_file_path)
 
@@ -103,7 +103,7 @@ def check_dl4j_model(
 
         elif model.__class__.__name__ == 'Model':
             modelType = gateway.jvm.org.deeplearning4j.keras.model.KerasModelType.FUNCTIONAL
-            params_builder = gateway.jvm.org.deeplearning4j.keras.api.sequential.KerasModelRef.builder()
+            params_builder = gateway.jvm.org.deeplearning4j.keras.api.KerasModelRef.builder()
             params_builder.type(modelType)
             params_builder.modelFilePath(model_file_path)
 
@@ -201,17 +201,52 @@ def _sequential_fit(
     """
     check_dl4j_model(self) # enforces dl4j model for model.fn()
 
-    features_directory = dump_ndarray(batch_size, x)
-    labels_directory = dump_ndarray(batch_size, y)
+    training_x = None
+    training_y = None
+    validation_x = None
+    validation_y = None
+    do_validation = True
+
+    if validation_data:
+        training_x = dump_ndarray(batch_size, x)
+        training_y = dump_ndarray(batch_size, y)
+
+        if len(validation_data) == 2:
+            val_x, val_y = validation_data
+            validation_x = dump_ndarray(batch_size, val_x)
+            validation_y = dump_ndarray(batch_size, val_y)            
+        elif len(validation_data) == 3:
+            val_x, val_y, val_sample_weight = validation_data
+            validation_x = dump_ndarray(batch_size, val_x)
+            validation_y = dump_ndarray(batch_size, val_y) 
+        else:
+            raise ValueError('Incorrect configuration for validation_data. Must be a tuple of length 2 or 3.')
+    elif validation_split and 0. < validation_split < 1.:
+        split_at = int(len(x[0]) * (1. - validation_split))
+        x, val_x = (slice_X(x, 0, split_at), slice_X(x, split_at))
+        y, val_y = (slice_X(y, 0, split_at), slice_X(y, split_at))
+        training_x = dump_ndarray(batch_size, x)
+        training_y = dump_ndarray(batch_size, y)
+        validation_x = dump_ndarray(batch_size, val_x)
+        validation_y = dump_ndarray(batch_size, val_y)
+    else:
+        do_validation = False
+        training_x = dump_ndarray(batch_size, x)
+        training_y = dump_ndarray(batch_size, y)
+
 
     gateway = JavaGateway()
 
-    params_builder = gateway.jvm.org.deeplearning4j.keras.api.sequential.FitParams.builder()
+    params_builder = gateway.jvm.org.deeplearning4j.keras.api.FitParams.builder()
     params_builder.sequentialModel(self._dl4j_model)
     params_builder.nbEpoch(nb_epoch)
-    params_builder.trainFeaturesDirectory(features_directory)
-    params_builder.trainLabelsDirectory(labels_directory)
+    params_builder.trainXPath(training_x)
+    params_builder.trainYPath(training_y)
+    if not validation_x == None:
+        params_builder.validationXPath(validation_x)
+        params_builder.validationYPath(validation_y)
     params_builder.dimOrdering(K.image_dim_ordering())
+    params_builder.doValidation(do_validation)
     gateway.sequentialFit(params_builder.build())
     # TODO
 
@@ -234,7 +269,7 @@ def _sequential_evaluate(
 
     gateway = JavaGateway()
 
-    params_builder = gateway.jvm.org.deeplearning4j.keras.api.sequential.EvaluateParams.builder()
+    params_builder = gateway.jvm.org.deeplearning4j.keras.api.EvaluateParams.builder()
     params_builder.sequentialModel(self._dl4j_model)
     params_builder.featuresDirectory(features_directory)
     params_builder.labelsDirectory(labels_directory)
@@ -258,7 +293,7 @@ def _sequential_predict(
 
     gateway = JavaGateway()
 
-    params_builder = gateway.jvm.org.deeplearning4j.keras.api.sequential.EvaluateParams.builder()
+    params_builder = gateway.jvm.org.deeplearning4j.keras.api.EvaluateParams.builder()
     params_builder.sequentialModel(self._dl4j_model)
     params_builder.featuresDirectory(features_directory)
     params_builder.batchSize(batch_size)
@@ -278,7 +313,7 @@ def _sequential_predict_on_batch(
 
     gateway = JavaGateway()
 
-    params_builder = gateway.jvm.org.deeplearning4j.keras.api.sequential.EvaluateParams.builder()
+    params_builder = gateway.jvm.org.deeplearning4j.keras.api.EvaluateParams.builder()
     params_builder.sequentialModel(self._dl4j_model)
     params_builder.featuresDirectory(features_directory)
     gateway.sequentialPredictOnBatch(params_builder.build())
@@ -332,17 +367,52 @@ def _functional_fit(
     """
     check_dl4j_model(self) # enforces dl4j model for model.fn()
 
-    features_directory = dump_ndarray(batch_size, x)
-    labels_directory = dump_ndarray(batch_size, y)
+    training_x = None
+    training_y = None
+    validation_x = None
+    validation_y = None
+    do_validation = True
+
+    if validation_data:
+        training_x = dump_ndarray(batch_size, x)
+        training_y = dump_ndarray(batch_size, y)
+
+        if len(validation_data) == 2:
+            val_x, val_y = validation_data
+            validation_x = dump_ndarray(batch_size, val_x)
+            validation_y = dump_ndarray(batch_size, val_y)            
+        elif len(validation_data) == 3:
+            val_x, val_y, val_sample_weight = validation_data
+            validation_x = dump_ndarray(batch_size, val_x)
+            validation_y = dump_ndarray(batch_size, val_y) 
+        else:
+            raise ValueError('Incorrect configuration for validation_data. Must be a tuple of length 2 or 3.')
+    elif validation_split and 0. < validation_split < 1.:
+        split_at = int(len(x[0]) * (1. - validation_split))
+        x, val_x = (slice_X(x, 0, split_at), slice_X(x, split_at))
+        y, val_y = (slice_X(y, 0, split_at), slice_X(y, split_at))
+        training_x = dump_ndarray(batch_size, x)
+        training_y = dump_ndarray(batch_size, y)
+        validation_x = dump_ndarray(batch_size, val_x)
+        validation_y = dump_ndarray(batch_size, val_y)
+    else:
+        do_validation = False
+        training_x = dump_ndarray(batch_size, x)
+        training_y = dump_ndarray(batch_size, y)
+
 
     gateway = JavaGateway()
 
-    params_builder = gateway.jvm.org.deeplearning4j.keras.api.sequential.FitParams.builder()
+    params_builder = gateway.jvm.org.deeplearning4j.keras.api.FitParams.builder()
     params_builder.functionalModel(self._dl4j_model)
     params_builder.nbEpoch(nb_epoch)
-    params_builder.trainFeaturesDirectory(features_directory)
-    params_builder.trainLabelsDirectory(labels_directory)
+    params_builder.trainXPath(training_x)
+    params_builder.trainYPath(training_y)
+    if not validation_x == None:
+        params_builder.validationXPath(validation_x)
+        params_builder.validationYPath(validation_y)
     params_builder.dimOrdering(K.image_dim_ordering())
+    params_builder.doValidation(do_validation)
     gateway.functionalFit(params_builder.build())
     # TODO
 
@@ -379,7 +449,7 @@ def _functional_predict(
 
     gateway = JavaGateway()
 
-    params_builder = gateway.jvm.org.deeplearning4j.keras.api.sequential.EvaluateParams.builder()
+    params_builder = gateway.jvm.org.deeplearning4j.keras.api.EvaluateParams.builder()
     params_builder.functionalModel(self._dl4j_model)
     params_builder.featuresDirectory(features_directory)
     params_builder.batchSize(batch_size)
@@ -399,7 +469,7 @@ def _functional_predict_on_batch(
 
     gateway = JavaGateway()
 
-    params_builder = gateway.jvm.org.deeplearning4j.keras.api.sequential.EvaluateParams.builder()
+    params_builder = gateway.jvm.org.deeplearning4j.keras.api.EvaluateParams.builder()
     params_builder.functionalModel(self._dl4j_model)
     params_builder.featuresDirectory(features_directory)
     gateway.sequentialPredictOnBatch(params_builder.build())
@@ -423,14 +493,14 @@ def _save_model(
     check_dl4j_model(self) # enforces dl4j model for model.fn() 
 
     if model.__class__.__name__ == 'Sequential':
-        params_builder = gateway.jvm.org.deeplearning4j.keras.api.sequential.SaveParams.builder()
+        params_builder = gateway.jvm.org.deeplearning4j.keras.api.SaveParams.builder()
         params_builder.sequentialModel(self._dl4j_model)
         params_builder.writePath(filepath)
         params_builder.saveUpdaterState(saveUpdaterState)
         gateway.sequentialSave(params_builder.build())
 
     elif model.__class__.__name__ == 'Model':
-        params_builder = gateway.jvm.org.deeplearning4j.keras.api.sequential.SaveParams.builder()
+        params_builder = gateway.jvm.org.deeplearning4j.keras.api.SaveParams.builder()
         params_builder.functionalModel(self._dl4j_model)
         params_builder.writePath(filepath)
         params_builder.saveUpdaterState(saveUpdaterState)
