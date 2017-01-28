@@ -147,6 +147,24 @@ def install_dl4j_backend(model):
         model.compile = new.instancemethod(_sequential_compile, model, None)
 
     elif model.__class__.__name__ == 'Model':
+        # compile()
+        model._old_compile = model.compile
+        model.compile = new.instancemethod(_functional_compile)
+        # fit()
+        model._old_fit = model.fit
+        model.fit = new.instancemethod(_functional_fit, model, None)
+        # evaluate()
+        model._old_evaluate = model.evaluate
+        model.evaluate = new.instancemethod(_functional_evaluate, model, None)
+        # predict()
+        model._old_predict = model.predict
+        model.predict = new.instancemethod(_functional_predict, model, None)
+        # predict_on_batch()
+        model._old_predict_on_batch = model.predict_on_batch
+        model.predict_on_batch = new.instancemethod(_functional_predict_on_batch, model, None)
+        # compile()
+        model._old_compile = model.compile
+        model.compile = new.instancemethod(_functional_compile, model, None)
 
     else:
         raise ValueError('DL4J Keras only works with Sequential and Functional models')
@@ -248,7 +266,6 @@ def _sequential_fit(
     params_builder.dimOrdering(K.image_dim_ordering())
     params_builder.doValidation(do_validation)
     gateway.sequentialFit(params_builder.build())
-    # TODO
 
 
 def _sequential_evaluate(
@@ -414,7 +431,6 @@ def _functional_fit(
     params_builder.dimOrdering(K.image_dim_ordering())
     params_builder.doValidation(do_validation)
     gateway.functionalFit(params_builder.build())
-    # TODO
 
 
 def _functional_evaluate(
@@ -453,7 +469,7 @@ def _functional_predict(
     params_builder.functionalModel(self._dl4j_model)
     params_builder.featuresDirectory(features_directory)
     params_builder.batchSize(batch_size)
-    gateway.sequentialPredict(params_builder.build())
+    gateway.functionalPredict(params_builder.build())
     # TODO
 
 
@@ -472,7 +488,7 @@ def _functional_predict_on_batch(
     params_builder = gateway.jvm.org.deeplearning4j.keras.api.EvaluateParams.builder()
     params_builder.functionalModel(self._dl4j_model)
     params_builder.featuresDirectory(features_directory)
-    gateway.sequentialPredictOnBatch(params_builder.build())
+    gateway.functionalPredictOnBatch(params_builder.build())
     # TODO
 
 
