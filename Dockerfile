@@ -34,7 +34,8 @@ RUN git clone --depth 1 https://github.com/deeplearning4j/dl4j-test-resources.gi
 RUN cd dl4j-test-resources && mvn --settings /usr/share/maven/ref/settings-docker.xml  clean install && cd ..
 
 # deeplearning4j
-RUN git clone --depth 1 https://github.com/deeplearning4j/deeplearning4j.git
+# RUN git clone --depth 1 https://github.com/deeplearning4j/deeplearning4j.git
+RUN git clone --depth 1 -b keras-dl4j-api https://github.com/crockpotveggies/deeplearning4j.git
 RUN cd deeplearning4j && mvn --settings /usr/share/maven/ref/settings-docker.xml clean install -DskipTests -Dmaven.javadoc.skip=true -pl '!:deeplearning4j-cuda-8.0' && cd ..
 
 # Hack: http://serverfault.com/questions/771211/docker-alpine-and-matplotlib

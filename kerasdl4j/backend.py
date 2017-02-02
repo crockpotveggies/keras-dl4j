@@ -292,7 +292,6 @@ def _sequential_evaluate(
     params_builder.labelsDirectory(labels_directory)
     params_builder.batchSize(batch_size)
     gateway.sequentialEvaluate(params_builder.build())
-    # TODO
 
 
 def _sequential_predict(
@@ -310,7 +309,7 @@ def _sequential_predict(
 
     gateway = JavaGateway()
 
-    params_builder = gateway.jvm.org.deeplearning4j.keras.api.EvaluateParams.builder()
+    params_builder = gateway.jvm.org.deeplearning4j.keras.api.PredictParams.builder()
     params_builder.sequentialModel(self._dl4j_model)
     params_builder.featuresDirectory(features_directory)
     params_builder.batchSize(batch_size)
@@ -326,11 +325,11 @@ def _sequential_predict_on_batch(
     """
     check_dl4j_model(self) # enforces dl4j model for model.fn() 
 
-    features_directory = dump_ndarray(batch_size, x)
+    features_directory = dump_ndarray(len(x), x)
 
     gateway = JavaGateway()
 
-    params_builder = gateway.jvm.org.deeplearning4j.keras.api.EvaluateParams.builder()
+    params_builder = gateway.jvm.org.deeplearning4j.keras.api.PredictOnBatchParams.builder()
     params_builder.sequentialModel(self._dl4j_model)
     params_builder.featuresDirectory(features_directory)
     gateway.sequentialPredictOnBatch(params_builder.build())
@@ -465,7 +464,7 @@ def _functional_predict(
 
     gateway = JavaGateway()
 
-    params_builder = gateway.jvm.org.deeplearning4j.keras.api.EvaluateParams.builder()
+    params_builder = gateway.jvm.org.deeplearning4j.keras.api.PredictParams.builder()
     params_builder.functionalModel(self._dl4j_model)
     params_builder.featuresDirectory(features_directory)
     params_builder.batchSize(batch_size)
@@ -481,11 +480,11 @@ def _functional_predict_on_batch(
     """
     check_dl4j_model(self) # enforces dl4j model for model.fn() 
 
-    features_directory = dump_ndarray(batch_size, x)
+    features_directory = dump_ndarray(len(x), x)
 
     gateway = JavaGateway()
 
-    params_builder = gateway.jvm.org.deeplearning4j.keras.api.EvaluateParams.builder()
+    params_builder = gateway.jvm.org.deeplearning4j.keras.api.PredictOnBatchParams.builder()
     params_builder.functionalModel(self._dl4j_model)
     params_builder.featuresDirectory(features_directory)
     gateway.functionalPredictOnBatch(params_builder.build())
