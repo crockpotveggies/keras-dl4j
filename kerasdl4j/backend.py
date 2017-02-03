@@ -77,42 +77,42 @@ def dump_ndarray(batch_size, dataset):
 
 
 def check_dl4j_model(
-    model_object):
+    self):
     """
     Checks the current Keras model object in scope
     and installs a reference to DL4J MultiLayerNetwork
     if it doesn't exist.
     """
-    if hasattr(model_object, '_dl4j_model'):
-        return model_object
+    if hasattr(self, '_dl4j_model'):
+        return self
     else:
         model_file_path = generate_tmp_path()
-        model_object.save(model_file_path)
+        self.save(model_file_path, useLegacySave=True)
 
         gateway = JavaGateway()
         modelType = None
 
-        if model.__class__.__name__ == 'Sequential':
+        if self.__class__.__name__ == 'Sequential':
             modelType = gateway.jvm.org.deeplearning4j.keras.model.KerasModelType.SEQUENTIAL
             params_builder = gateway.jvm.org.deeplearning4j.keras.api.KerasModelRef.builder()
             params_builder.type(modelType)
             params_builder.modelFilePath(model_file_path)
 
-            model_object._dl4j_model = gateway.sequential_to_multilayernetwork(params_builder.build())
-            model_object._dl4j_type = modelType
+            self._dl4j_model = gateway.sequential_to_multilayernetwork(params_builder.build())
+            self._dl4j_type = modelType
 
-        elif model.__class__.__name__ == 'Model':
+        elif self.__class__.__name__ == 'Model':
             modelType = gateway.jvm.org.deeplearning4j.keras.model.KerasModelType.FUNCTIONAL
             params_builder = gateway.jvm.org.deeplearning4j.keras.api.KerasModelRef.builder()
             params_builder.type(modelType)
             params_builder.modelFilePath(model_file_path)
 
-            model_object._dl4j_model = gateway.functional_to_computationgraph(params_builder.build())
-            model_object._dl4j_type = modelType
+            self._dl4j_model = gateway.functional_to_computationgraph(params_builder.build())
+            self._dl4j_type = modelType
         else:
             raise ValueError('DL4J Keras only works with Sequential and Functional models')
         
-        return model_object
+        return self
 
 
 def install_dl4j_backend(model):
@@ -122,14 +122,14 @@ def install_dl4j_backend(model):
     :param model: Model in which fit will be hijacked
     """
     # append special methods
-    # save_model()
-    model.save_model = new.instancemethod(_save_model, model, None)
+    model._old_save = model.save
+    model.save = new.instancemethod(_save_model, model, None)
 
     # hijack Keras API
     if model.__class__.__name__ == 'Sequential':
         # compile()
         model._old_compile = model.compile
-        model.compile = new.instancemethod(_sequential_compile)
+        model.compile = new.instancemethod(_sequential_compile, model, None)
         # fit()
         model._old_fit = model.fit
         model.fit = new.instancemethod(_sequential_fit, model, None)
@@ -142,14 +142,11 @@ def install_dl4j_backend(model):
         # predict_on_batch()
         model._old_predict_on_batch = model.predict_on_batch
         model.predict_on_batch = new.instancemethod(_sequential_predict_on_batch, model, None)
-        # compile()
-        model._old_compile = model.compile
-        model.compile = new.instancemethod(_sequential_compile, model, None)
 
     elif model.__class__.__name__ == 'Model':
         # compile()
         model._old_compile = model.compile
-        model.compile = new.instancemethod(_functional_compile)
+        model.compile = new.instancemethod(_functional_compile, model, None)
         # fit()
         model._old_fit = model.fit
         model.fit = new.instancemethod(_functional_fit, model, None)
@@ -162,9 +159,6 @@ def install_dl4j_backend(model):
         # predict_on_batch()
         model._old_predict_on_batch = model.predict_on_batch
         model.predict_on_batch = new.instancemethod(_functional_predict_on_batch, model, None)
-        # compile()
-        model._old_compile = model.compile
-        model.compile = new.instancemethod(_functional_compile, model, None)
 
     else:
         raise ValueError('DL4J Keras only works with Sequential and Functional models')
@@ -189,7 +183,7 @@ def _sequential_compile(
     Configures the learning process.
     """
     # first call the old compile() method
-    self._old_compile(self, optimizer, loss, metrics, sample_weight_mode, kwargs)
+    self._old_compile(optimizer, loss, metrics, sample_weight_mode)
 
     # then convert to DL4J instance
     check_dl4j_model(self) # enforces dl4j model for model.fn()
@@ -353,7 +347,7 @@ def _functional_compile(
     Configures the model for training.
     """
     # first call the old compile() method
-    self._old_compile(self, optimizer, loss, metrics, loss_weights, sample_weight_mode, kwargs)
+    self._old_compile(optimizer, loss, metrics, loss_weights, sample_weight_mode, kwargs)
 
     # then convert to DL4J instance
     check_dl4j_model(self) # enforces dl4j model for model.fn()
@@ -501,25 +495,31 @@ def _save_model(
     self, 
     filepath, 
     overwrite=True,
-    saveUpdaterState=False):
+    saveUpdaterState=False,
+    useLegacySave=False):
     """
     Save model to disk in DL4J format.
     """
-    check_dl4j_model(self) # enforces dl4j model for model.fn() 
 
-    if model.__class__.__name__ == 'Sequential':
-        params_builder = gateway.jvm.org.deeplearning4j.keras.api.SaveParams.builder()
-        params_builder.sequentialModel(self._dl4j_model)
-        params_builder.writePath(filepath)
-        params_builder.saveUpdaterState(saveUpdaterState)
-        gateway.sequentialSave(params_builder.build())
-
-    elif model.__class__.__name__ == 'Model':
-        params_builder = gateway.jvm.org.deeplearning4j.keras.api.SaveParams.builder()
-        params_builder.functionalModel(self._dl4j_model)
-        params_builder.writePath(filepath)
-        params_builder.saveUpdaterState(saveUpdaterState)
-        gateway.functionalSave(params_builder.build())
+    if useLegacySave:
+        self._old_save(filepath,overwrite)
 
     else:
-        raise ValueError('DL4J Keras only works with Sequential and Functional models')
+        check_dl4j_model(self) # enforces dl4j model for model.fn()
+
+        if model.__class__.__name__ == 'Sequential':
+            params_builder = gateway.jvm.org.deeplearning4j.keras.api.SaveParams.builder()
+            params_builder.sequentialModel(self._dl4j_model)
+            params_builder.writePath(filepath)
+            params_builder.saveUpdaterState(saveUpdaterState)
+            gateway.sequentialSave(params_builder.build())
+
+        elif model.__class__.__name__ == 'Model':
+            params_builder = gateway.jvm.org.deeplearning4j.keras.api.SaveParams.builder()
+            params_builder.functionalModel(self._dl4j_model)
+            params_builder.writePath(filepath)
+            params_builder.saveUpdaterState(saveUpdaterState)
+            gateway.functionalSave(params_builder.build())
+
+        else:
+            raise ValueError('DL4J Keras only works with Sequential and Functional models')

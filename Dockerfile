@@ -17,6 +17,10 @@ RUN pip install --upgrade pip
 # jupyter
 RUN pip install jupyter
 
+# Install keras and other deps
+RUN pip install keras
+RUN pip install h5py py4j xxhash
+
 # libnd4j
 RUN git clone --depth 1 https://github.com/deeplearning4j/libnd4j.git
 RUN cd libnd4j && ./buildnativeoperations.sh && cd ..
@@ -35,21 +39,17 @@ RUN cd dl4j-test-resources && mvn --settings /usr/share/maven/ref/settings-docke
 
 # deeplearning4j
 # RUN git clone --depth 1 https://github.com/deeplearning4j/deeplearning4j.git
-RUN git clone --depth 1 -b keras-dl4j-api https://github.com/crockpotveggies/deeplearning4j.git
+RUN git clone --depth 1 -b keras-dl4j-api https://github.com/crockpotveggies/deeplearning4j.git; echo "20170202-1"
 RUN cd deeplearning4j && mvn --settings /usr/share/maven/ref/settings-docker.xml clean install -DskipTests -Dmaven.javadoc.skip=true -pl '!:deeplearning4j-cuda-8.0' && cd ..
 
 # Hack: http://serverfault.com/questions/771211/docker-alpine-and-matplotlib
 RUN ln -s /usr/include/locale.h /usr/include/xlocale.h
-
-# Install keras
-RUN pip install keras
 
 #
 # keras-dl4j stuff
 #
 
 # Install keras-dl4j
-RUN pip install h5py py4j xxhash
 RUN mkdir /keras-dl4j /root/.keras
 COPY ./keras.json /root/.keras
 ADD . /keras-dl4j
